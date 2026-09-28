@@ -1,0 +1,4 @@
+# Tested runtime: CPython 3.12, CPU only. No CUDA requirement.
+torch==2.14.0
+numpy==2.5.3
+ruff==0.16.8
