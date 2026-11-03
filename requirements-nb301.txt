@@ -1,0 +1,13 @@
+# NB301 extraction / prefix training require ONLY the existing requirements.txt.
+# Do not install legacy NB301 dependencies into the primary research environment.
+#
+# Terminal inference needs the official nasbench301 package in a SEPARATE
+# interpreter, supplied via NB301_PYTHON or --oracle-python.
+#
+# Upstream load_ensemble imports utils, which eagerly imports GNN, BANANAS,
+# LightGBM, XGBoost and sklearn models even for an XGBoost-only ensemble.
+# Its original requirements pin ConfigSpace 0.4.12, sklearn 0.23 and torch 1.5.
+# No compatibility-verified modern minimal install exists in this checkout.
+# See bench301/README.md for source links and the isolated worker contract.
+# This intentionally has no install directives: there is no verified recipe
+# that would safely satisfy these imports in the current Python 3.12 venv.

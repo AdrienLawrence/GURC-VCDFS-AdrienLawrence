@@ -1,5 +1,6 @@
 """Public algorithms plus a small dispatcher for existing experiment settings."""
 
+from .astar import astar
 from .beam import beam
 from .bfs import bfs
 from .cdfs import cdfs
@@ -7,7 +8,10 @@ from .common import Budget, Problem, Result
 from .dfs import dfs, heuristic_dfs
 from .dynamic_beam import DynamicBeamConfig, dynamic_beam
 from .gbfs import gbfs
+from .mcts import mcts
 from .vcbfs import VCBFSConfig, breadth_confidence, vcbfs, vcbfsa
+from .vcbfs_beam import vcbfs_beam, vcbfs_beama
+from .vcbfsn import vcbfsn, vcbfsna
 from .vcdfs import Retention, confidence, vcdfs, vcdfsa
 
 __all__ = [
@@ -23,14 +27,20 @@ __all__ = [
     "heuristic_dfs",
     "bfs",
     "beam",
+    "astar",
     "dynamic_beam",
     "gbfs",
+    "mcts",
     "cdfs",
     "vcdfs",
     "vcdfsa",
     "breadth_confidence",
     "vcbfs",
     "vcbfsa",
+    "vcbfs_beam",
+    "vcbfs_beama",
+    "vcbfsn",
+    "vcbfsna",
 ]
 
 

@@ -1,5 +1,33 @@
 # Implementation review: what was added and why
 
+## Domain refactor and NB301 addition (2026-10-14)
+
+The existing NB201 source now lives in `bench201/`: `space.py`, `specs.py`,
+`empirical.py`, `heuristic/`, `behavior/` and the figure entry point. Root/module
+compatibility shims delegate to these files. `search_registry.py` contains shared
+dispatch; the original default specifications remain in `bench201/specs.py`.
+No existing algorithm implementation was changed.
+
+NB301 files are organized by purpose:
+
+- `representation.py`: legal 22-token prefixes and genotype/ConfigSpace conversion.
+- `space.py`: injected prefix predictor and terminal evaluator, shared Problem interface.
+- `heuristic/extract.py`: verified official real-record parser, canonical grouping/provenance.
+- `heuristic/data.py`: architecture splits, tokenization and lazy prefix dataset.
+- `heuristic/model.py`: four embedding types, compact transformer, frozen JSON checkpoints.
+- `heuristic/train.py`: deterministic batched AdamW, train-only normalization, dev restoration.
+- `heuristic/evaluate.py`: held-out diagnostics and optional completion alignment.
+- `heuristic/experiment.py`: offline model-study orchestration.
+- `oracle.py`: deterministic terminal-only official API, caching and lazy runtime loading.
+- `oracle_bridge.py`: JSONL worker for the independently prepared legacy environment.
+- `specs.py`: provisional controls dispatched through unchanged shared algorithms.
+- `empirical.py`: online work/resource measurements and observed quality milestones.
+- `reference.py`: reproducible random reference sample, not a known optimum.
+- `download.py`: explicit archive acquisition with published checksum verification.
+
+See [bench301/README.md](bench301/README.md) for exact mapping, measured label
+semantics, source links, commands and remaining external-runtime requirements.
+
 This is the review guide, not another implementation. Functions are kept short
 and code is formatted. Nothing trains implicitly on import. All algorithms
 minimize objective values; higher accuracy is converted to lower error once.
@@ -41,7 +69,7 @@ minimize objective values; higher accuracy is converted to lower error once.
 - `vcdfs` constructs the proportional selector; `vcdfsa` constructs the absolute
   selector. Both use the same DFS backtracking. No hidden restart or reopening.
 
-### `bfs.py`, `gbfs.py`, `beam.py`, `dynamic_beam.py`, and `vcbfs.py`
+### `bfs.py`, `gbfs.py`, `beam.py`, `dynamic_beam.py`, `vcbfs.py`, and `vcbfs_beam.py`
 
 - `bfs` uses a FIFO queue, without scoring or pruning.
 - `beam` explicitly constructs the next level, globally sorts its candidates,
@@ -50,10 +78,12 @@ minimize objective values; higher accuracy is converted to lower error once.
 - `gbfs` retains every generated state in one global priority queue and always
   expands the state with the smallest heuristic. It does not use path cost and
   does not prune; its incompleteness in experiments comes only from budgets.
-- `vcbfs` constructs the complete next-level candidate set, computes the
-  best/second-best gap divided by level MAD, and maps that confidence into a
-  proportional global frontier width. `vcbfsa` supplies absolute bounds. The
-  reference plateau confidence is 0.5 and width rounding is half-up.
+- `vcbfs` pools next-level scores only to compute shared confidence. It then
+  maps that confidence to a separate width for each parent's ranked children
+  and concatenates the retained groups. `vcbfsa` supplies absolute bounds.
+- `vcbfs_beam` preserves the former implementation: confidence and width are
+  both applied to one pooled candidate frontier. Its empirical results are
+  labeled `VCBFSBeam`, never corrected `VCBFS`.
 - `dynamic_beam` implements both controllers from Merenda et al. (2020): Shannon
   entropy over the full distribution and standard deviation over its top-k values.
   Both linearly map their statistic to a bounded global beam width. Because NAS
@@ -65,7 +95,13 @@ converted probabilities and widens when Shannon uncertainty is high. Standard-
 deviation Dynamic Beam uses only the top-k probabilities and narrows when their
 spread is high. VCBFS uses no entropy, top-k setting, temperature, slope, or
 intercept: it directly maps the MAD-normalized top-two gap to the requested
-minimum/maximum retained fraction. All four remain global breadth schedulers.
+minimum/maximum retained fraction. VCBFS uses shared level confidence with
+parent-local retention; VCBFSBeam and Dynamic Beam use global retention.
+
+VCBFSN keeps the breadth-first schedule and parent-local retention, but computes
+confidence separately inside each parent's sibling group. It therefore uses the
+same local normalization rule as VCDFS: parents at one depth may receive different
+confidence values and retain different numbers of children.
 
 ### `__init__.py` — public imports
 

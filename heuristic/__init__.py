@@ -1,1 +1,1 @@
-"""Transformer NAS-prefix heuristic; importing this package never trains it."""
+"""Transitional namespace; implementations live in bench201.heuristic."""

@@ -10,12 +10,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from heuristic.data import examples, split_indices, tokenize
-from heuristic.evaluate import Baselines, metrics
-from heuristic.extract import CompactMemo, StreamingReader, summarize
-from heuristic.model import FrozenPredictor, PrefixTransformer
-from heuristic.train import TrainingConfig, fit
-from nas_space import architecture_string
+from bench201.heuristic.data import examples, split_indices, tokenize
+from bench201.heuristic.evaluate import Baselines, metrics
+from bench201.heuristic.extract import CompactMemo, StreamingReader, summarize
+from bench201.heuristic.model import FrozenPredictor, PrefixTransformer
+from bench201.heuristic.train import TrainingConfig, fit
+from bench201.space import architecture_string
 
 
 def row(state, error):

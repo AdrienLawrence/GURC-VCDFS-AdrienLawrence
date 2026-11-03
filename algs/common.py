@@ -6,7 +6,7 @@ are better. No cycle detection, graph dominance, or optimality guarantee.
 
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol
 
 
 class Problem(Protocol):
@@ -35,11 +35,15 @@ def positive_integer(value, name):
 class Budget:
     expansions: int | None = None
     queries: int | None = None
+    # Optional external resource guard. Existing budgets leave this unset.
+    stop_if: Callable[[], str | None] | None = None
 
     def __post_init__(self):
         for value in (self.expansions, self.queries):
             if value is not None and (type(value) is not int or value < 0):
                 raise ValueError("Budgets must be nonnegative integers or None")
+        if self.stop_if is not None and not callable(self.stop_if):
+            raise ValueError("stop_if must be callable or None")
 
 
 @dataclass
@@ -71,6 +75,16 @@ class Run:
         if self.event is not None:
             self.event({"kind": kind, **fields})
 
+    def _check_external_limit(self):
+        if self.stopped or self.budget.stop_if is None:
+            return self.stopped
+        reason = self.budget.stop_if()
+        if reason is not None:
+            if reason not in {"time_limit", "memory_limit"}:
+                raise ValueError("External stop reason must be time_limit or memory_limit")
+            self.result.stop, self.stopped = reason, True
+        return self.stopped
+
     def visit(self, state, depth):
         """Return children or None for terminal/rejected/stopped.
 
@@ -78,6 +92,8 @@ class Run:
         stops at the next nonterminal requiring expansion; it does NOT skip that
         node to inspect later queued terminals. A query cap stops immediately.
         """
+        if self._check_external_limit():
+            return None
         p, r = self.problem, self.result
         r.max_depth = max(r.max_depth, depth)
         self.emit("visit", state=state, depth=depth)
@@ -107,8 +123,17 @@ class Run:
         return children
 
     def rank(self, children):
-        ranked = [(finite(self.problem.heuristic(child)), child) for child in children]
+        # A domain may score one sibling group at once. Domains without this
+        # optional method keep their original scalar scoring path unchanged.
+        if getattr(self.problem, "batch_scores", False) and hasattr(self.problem, "heuristics"):
+            scores = list(self.problem.heuristics(children))
+            if len(scores) != len(children):
+                raise ValueError("Batched heuristic returned the wrong number of scores")
+            ranked = [(finite(score), child) for score, child in zip(scores, children, strict=True)]
+        else:
+            ranked = [(finite(self.problem.heuristic(child)), child) for child in children]
         self.result.scored += len(ranked)
+        self.emit("rank", count=len(ranked))
         # Key-only stable sorting never compares state objects to break ties.
         ranked.sort(key=lambda pair: pair[0])
         return ranked
@@ -116,3 +141,5 @@ class Run:
     def pressure(self, count):
         # Queue records only, NOT bytes or total temporary/model memory.
         self.result.peak_pending = max(self.result.peak_pending, count)
+        if count:
+            self._check_external_limit()

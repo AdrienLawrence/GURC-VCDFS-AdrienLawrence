@@ -10,4 +10,7 @@ htmlcov/
 *.pth
 *.part
 artifacts/
+bench301/cache/
+bench301/artifacts/
+bench301/.venv-oracle/
 *.log

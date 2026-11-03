@@ -105,12 +105,16 @@ def dynamic_beam(problem, config, *, budget=Budget(), event=None):
         candidates.sort(key=lambda item: item[0])
         width, statistic = config.width([score for score, _, _ in candidates])
         run.result.pruned += max(0, len(candidates) - width)
+        retained = candidates[:width]
+        pruned = candidates[width:]
         run.emit(
             "dynamic_beam",
             policy=config.policy,
             statistic=statistic,
             b=len(candidates),
             k=width,
+            retained=[{"state": state, "score": score} for score, state, _ in retained],
+            pruned=[{"state": state, "score": score} for score, state, _ in pruned],
         )
         level = [(state, depth) for _, state, depth in candidates[:width]]
     return run.result

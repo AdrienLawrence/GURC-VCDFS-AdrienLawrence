@@ -1,4 +1,4 @@
-"""Variable-Cluster Breadth-First Search with global level retention."""
+"""Variable-Cluster Breadth-First Search with parent-local retention."""
 
 from dataclasses import dataclass
 from math import floor, fsum, isfinite
@@ -24,7 +24,7 @@ def breadth_confidence(scores, epsilon=1e-5):
 
 @dataclass(frozen=True)
 class VCBFSConfig:
-    """Bounds for the next global frontier; proportional is the default."""
+    """Per-parent retention bounds; proportional is the default."""
 
     lower: float = 1
     upper: float = 10
@@ -74,23 +74,44 @@ def _vcbfs(problem, config, *, budget=Budget(), event=None):
     run = Run(problem, budget, event)
     level = [(problem.initial, 0)]
     while level and not run.stopped:
-        candidates = []
+        groups = []
+        pooled_scores = []
         for position, (state, depth) in enumerate(level):
             children = run.visit(state, depth)
             if children is not None:
-                candidates.extend((score, child, depth + 1) for score, child in run.rank(children))
-            run.pressure(len(level) - position - 1 + len(candidates))
+                ranked = run.rank(children)
+                if ranked:
+                    groups.append((state, depth + 1, ranked))
+                    pooled_scores.extend(score for score, _ in ranked)
+            run.pressure(len(level) - position - 1 + len(pooled_scores))
             if run.stopped:
                 break
         if run.stopped:
             break
-        candidates.sort(key=lambda item: item[0])
-        if candidates:
-            confidence = breadth_confidence([score for score, _, _ in candidates], config.epsilon)
-            width = config.width(len(candidates), confidence)
-        else:
-            confidence, width = None, 0
-        run.result.pruned += max(0, len(candidates) - width)
-        run.emit("vcbfs", confidence=confidence, b=len(candidates), k=width)
-        level = [(state, depth) for _, state, depth in candidates[:width]]
+        confidence = breadth_confidence(pooled_scores, config.epsilon) if pooled_scores else None
+        next_level = []
+        event_groups = []
+        for parent, depth, ranked in groups:
+            width = config.width(len(ranked), confidence)
+            retained, pruned = ranked[:width], ranked[width:]
+            run.result.pruned += len(pruned)
+            next_level.extend((state, depth) for _, state in retained)
+            event_groups.append(
+                {
+                    "parent": parent,
+                    "b": len(ranked),
+                    "k": width,
+                    "retained": [{"state": state, "score": score} for score, state in retained],
+                    "pruned": [{"state": state, "score": score} for score, state in pruned],
+                }
+            )
+        run.emit(
+            "vcbfs",
+            confidence=confidence,
+            total_candidates=len(pooled_scores),
+            active_parent_groups=len(groups),
+            groups=event_groups,
+        )
+        level = next_level
+        run.pressure(len(level))
     return run.result

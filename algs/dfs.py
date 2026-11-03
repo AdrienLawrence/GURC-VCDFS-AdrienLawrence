@@ -11,6 +11,8 @@ def dfs(problem, *, selector=None, budget=Budget(), event=None):
         children = run.visit(state, depth)
         if children is not None:
             conf = None
+            retained_trace = []
+            pruned_trace = []
             if selector is None:
                 selected = children
             else:
@@ -19,8 +21,21 @@ def dfs(problem, *, selector=None, budget=Budget(), event=None):
                 if type(k) is not int or not 0 <= k <= len(children):
                     raise ValueError("Selector returned an invalid width")
                 selected = [child for _, child in ranked[:k]]
+                if run.event is not None:
+                    retained_trace = [
+                        {"state": child, "score": score} for score, child in ranked[:k]
+                    ]
+                    pruned_trace = [{"state": child, "score": score} for score, child in ranked[k:]]
             run.result.pruned += len(children) - len(selected)
-            run.emit("retain", state=state, b=len(children), k=len(selected), confidence=conf)
+            run.emit(
+                "retain",
+                state=state,
+                b=len(children),
+                k=len(selected),
+                confidence=conf,
+                retained=retained_trace,
+                pruned=pruned_trace,
+            )
             # Best child must be popped first; other retained siblings remain
             # pending while its entire subtree is explored. This IS backtracking.
             pending.extend((child, depth + 1) for child in reversed(selected))

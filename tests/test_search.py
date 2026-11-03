@@ -9,19 +9,24 @@ from algs import (
     DynamicBeamConfig,
     Retention,
     VCBFSConfig,
+    astar,
     breadth_confidence,
     confidence,
     dynamic_beam,
     gbfs,
+    mcts,
     search,
-    vcbfs,
+    vcbfs_beam,
+    vcbfs_beama,
+    vcbfsa,
+    vcbfsna,
 )
 from algs.dynamic_beam import (
     costs_to_probabilities,
     shannon_entropy,
     top_k_standard_deviation,
 )
-from nas_space import ArchitectureTree, architecture_string, encode, parse_architecture
+from bench201.space import ArchitectureTree, architecture_string, encode, parse_architecture
 from run import DemoTree
 
 
@@ -229,6 +234,20 @@ class DynamicBeamTests(unittest.TestCase):
 
 
 class BreadthBaselinesTests(unittest.TestCase):
+    def test_astar_and_mcts_exhaust_the_small_tree(self):
+        expected = min(DemoTree.costs.values())
+        a_result = astar(DemoTree())
+        m_result = mcts(DemoTree(), seed=7)
+        self.assertEqual((a_result.best_value, a_result.queries), (expected, 9))
+        self.assertEqual((m_result.best_value, m_result.queries), (expected, 9))
+        self.assertEqual(m_result.scored, 0)
+
+    def test_mcts_is_seeded_and_respects_query_budget(self):
+        first = mcts(DemoTree(), seed=11, budget=Budget(queries=3))
+        second = mcts(DemoTree(), seed=11, budget=Budget(queries=3))
+        self.assertEqual(first, second)
+        self.assertEqual(first.queries, 3)
+
     def test_gbfs_expands_global_best_without_pruning(self):
         visits = []
         result = gbfs(
@@ -249,10 +268,131 @@ class BreadthBaselinesTests(unittest.TestCase):
         self.assertEqual(config.width(100, 1), 10)
         self.assertEqual(VCBFSConfig(25, 25).width(10, 0), 3)
 
-    def test_vcbfs_is_global_level_retention(self):
+    def test_vcbfs_retains_per_parent_while_beam_variant_retains_globally(self):
+        class ParentGroups:
+            initial = ()
+
+            def feasible(self, state):
+                return True
+
+            def terminal(self, state):
+                return len(state) == 3
+
+            def successors(self, state):
+                if state == ():
+                    return [(0,)]
+                if state == (0,):
+                    return [(0, 0), (0, 1)]
+                return [state + (child,) for child in range(3)]
+
+            def heuristic(self, state):
+                if len(state) < 3:
+                    return 0.0
+                return float(state[2] + 100 * state[1])
+
+            def objective(self, state):
+                return self.heuristic(state)
+
         events = []
-        result = vcbfs(DemoTree(), 50, 50, event=events.append)
+        terminals = []
+        result = vcbfsa(
+            ParentGroups(),
+            2,
+            2,
+            event=lambda event: (
+                events.append(event),
+                terminals.append(event["state"]) if event["kind"] == "terminal" else None,
+            ),
+        )
         selections = [event for event in events if event["kind"] == "vcbfs"]
+        decision = next(event for event in selections if event["total_candidates"] == 6)
+        self.assertEqual(decision["total_candidates"], 6)
+        self.assertEqual(decision["active_parent_groups"], 2)
+        self.assertEqual(
+            [(group["b"], group["k"]) for group in decision["groups"]], [(3, 2), (3, 2)]
+        )
+        self.assertEqual(decision["confidence"], breadth_confidence([0, 1, 2, 100, 101, 102]))
+        self.assertEqual(terminals, [(0, 0, 0), (0, 0, 1), (0, 1, 0), (0, 1, 1)])
+        self.assertEqual((result.queries, result.pruned), (4, 2))
+
+        beam_result = vcbfs_beama(ParentGroups(), 2, 2)
+        self.assertEqual((beam_result.queries, beam_result.pruned), (2, 4))
+
+    def test_vcbfs_uses_each_parents_actual_branching_count(self):
+        class UnevenGroups:
+            initial = ()
+
+            def feasible(self, state):
+                return True
+
+            def terminal(self, state):
+                return len(state) == 3
+
+            def successors(self, state):
+                if state == ():
+                    return [(0,)]
+                if state == (0,):
+                    return [(0, 0), (0, 1)]
+                count = 2 if state == (0, 0) else 4
+                return [state + (child,) for child in range(count)]
+
+            def heuristic(self, state):
+                return float(sum(state))
+
+            def objective(self, state):
+                return self.heuristic(state)
+
+        events = []
+        result = vcbfsa(UnevenGroups(), 3, 3, event=events.append)
+        decision = next(
+            event for event in events if event["kind"] == "vcbfs" and event["total_candidates"] == 6
+        )
+        self.assertEqual(
+            [(group["b"], group["k"]) for group in decision["groups"]], [(2, 2), (4, 3)]
+        )
+        self.assertEqual(result.queries, 5)
+        self.assertEqual(result.pruned, 1)
+
+    def test_vcbfsn_normalizes_every_sibling_group_locally(self):
+        class DifferentLocalGaps:
+            initial = ()
+            feasible = staticmethod(lambda state: True)
+            terminal = staticmethod(lambda state: len(state) == 3)
+
+            @staticmethod
+            def successors(state):
+                if state == ():
+                    return [(0,)]
+                if state == (0,):
+                    return [(0, 0), (0, 1)]
+                return [state + (child,) for child in range(3)]
+
+            @staticmethod
+            def heuristic(state):
+                if len(state) < 3:
+                    return 0.0
+                scores = {(0, 0): (0, 10, 10), (0, 1): (100, 100.1, 102)}
+                return float(scores[state[:2]][state[2]])
+
+            objective = heuristic
+
+        events = []
+        result = vcbfsna(DifferentLocalGaps(), 1, 3, event=events.append)
+        decision = next(
+            event
+            for event in events
+            if event["kind"] == "vcbfsn" and event["total_candidates"] == 6
+        )
+        self.assertEqual([group["k"] for group in decision["groups"]], [1, 2])
+        self.assertNotEqual(
+            decision["groups"][0]["confidence"], decision["groups"][1]["confidence"]
+        )
+        self.assertEqual((result.queries, result.pruned), (3, 3))
+
+    def test_historical_vcbfs_beam_preserves_global_level_retention(self):
+        events = []
+        result = vcbfs_beam(DemoTree(), 50, 50, event=events.append)
+        selections = [event for event in events if event["kind"] == "vcbfs_beam"]
         self.assertEqual((selections[0]["b"], selections[0]["k"]), (3, 2))
         self.assertEqual((selections[1]["b"], selections[1]["k"]), (6, 3))
         self.assertEqual(result.queries, 3)

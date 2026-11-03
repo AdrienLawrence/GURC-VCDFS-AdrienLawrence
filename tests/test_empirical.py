@@ -8,26 +8,46 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from algs import Budget
-from empirical import (
-    DEFAULT_SPECS,
-    AlgorithmSpec,
-    execute,
-    load_specs,
+from bench201.empirical import (
     measure_search,
+)
+from bench201.specs import DEFAULT_SPECS, AlgorithmSpec, execute, load_specs
+from run import DemoTree
+from search_reporting import (
+    json_histogram,
     print_final_summary,
     print_run,
+    quality_metrics,
     summarize,
 )
-from run import DemoTree
 
 
 class EmpiricalRunnerTests(unittest.TestCase):
+    def test_run_rows_use_json_safe_width_histogram_keys(self):
+        histogram = json_histogram({4: 1, 2: 3})
+        self.assertEqual(histogram, {"2": 3, "4": 1})
+        self.assertTrue(all(isinstance(key, str) for key in histogram))
+
+    def test_primary_regret_is_search_only(self):
+        quality = quality_metrics(search_best=9.0, initial_incumbent=8.0, oracle_minimum=7.0)
+        self.assertEqual(quality["reported_best_error"], 9.0)
+        self.assertEqual(quality["regret_pp"], 2.0)
+        self.assertEqual(quality["incumbent_augmented_best_error"], 8.0)
+        self.assertEqual(quality["incumbent_augmented_regret_pp"], 1.0)
+        with self.assertRaises(RuntimeError):
+            quality_metrics(None, 8.0, 7.0)
+
     def test_default_specs_include_both_dynamic_beam_controllers(self):
         dynamic = [spec for spec in DEFAULT_SPECS if spec.algorithm == "dynamic_beam"]
         self.assertEqual(
             {spec.parameters["policy"] for spec in dynamic},
             {"entropy", "standard_deviation"},
         )
+
+    def test_corrected_and_historical_vcbfs_are_distinct_defaults(self):
+        names = {(spec.name, spec.algorithm) for spec in DEFAULT_SPECS}
+        self.assertIn(("VCBFS-20-40pct", "vcbfs"), names)
+        self.assertIn(("VCBFSBeam-20-40pct", "vcbfs_beam"), names)
 
     def test_every_default_algorithm_spec_executes(self):
         for spec in DEFAULT_SPECS:

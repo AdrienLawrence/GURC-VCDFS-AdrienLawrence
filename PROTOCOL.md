@@ -1,5 +1,34 @@
 # Frozen prefix-transformer experiment, version 2
 
+## NB301 transfer extension (2026-10-14)
+
+The original NB201 protocol and runtime remain unchanged under `bench201/`.
+The new `bench301/` domain uses the same shared algorithms, with 22 DARTS
+decisions and branching `7,7,3,7,7,6,7,7,10,7,7` per cell.
+
+Prefix targets are real measured CIFAR-10 validation summaries from official
+`info[0].val_accuracy`, in percentage units, grouped by canonical complete
+architecture before splitting. The summary is distinct from final-epoch
+`val_accuracy_final`; test accuracy never enters fitting. Uniform full-space
+expectation is not established by empirical means from optimizer-selected data.
+
+The frozen prefix transformer and official frozen terminal surrogate have separate
+roles. Surrogate outputs are used only for online complete-state objectives and
+optional diagnostics/reference samples, never as prefix training labels.
+Main surrogate calls disable noise. Offline acquisition/training costs are
+separate from online terminal queries and heuristic inference counts.
+
+Global optimum is unknown. Report observed objective, milestones and optional
+`reference_gap_pp`; do not report NB301 global regret, optimum-found rate or
+optimal-path survival. Reference sample best is not a proven optimum.
+
+The user prohibited all changes to existing runtime behavior. Therefore the
+proposed before-interpolation absolute-bound clipping is not implemented;
+existing absolute interpolation-then-clipping remains the transfer rule.
+Initial NB301 presets are provisional and must not be presented as tuned or
+preregistered final settings. Legacy surrogate dependencies execute only in
+an explicitly selected isolated runtime; primary dependency versions are unchanged.
+
 This is the implemented protocol, approved for implementation on September 22,
 2026. `revised_paper.txt` is the earlier proposal, not an exact specification of
 the current experiment. Changes to this protocol require a new version; results
@@ -143,10 +172,11 @@ revisits is conservative and explicit, not an equal-new-query experiment.
 All terminal solutions are evaluated with the same objective; no first-goal stop.
 Fewer queries after retained-subtree exhaustion is a legitimate result.
 
-Default empirical registry: DFS, BFS, DFS-H, GBFS, CDFS-2/4, Beam-4/16,
+Default empirical registry: DFS, BFS, DFS-H, GBFS, CDFS-1 through CDFS-5, Beam-4/16,
 DynamicBeam-Entropy-4-16, DynamicBeam-StdDev-4-16, VCDFS percentages
 20-40 / 20-80 / 20-100, VCDFS-A bounds 1-2 / 1-3 / 2-5, and VCBFS percentages
-20-40 / 20-80. These settings are mechanism probes, not claimed to be optimally
+20-40 / 20-80. Historical VCBFSBeam uses the same two bounds as a separate
+global-retention baseline. These settings are mechanism probes, not claimed to be optimally
 tuned or equivalent effective widths. The two Dynamic Beam defaults use fixed,
 declared NAS-adapter settings: entropy has slope 4 and intercept 0; top-5
 standard deviation has slope -100 and intercept 16; both use temperature 1 and
@@ -167,13 +197,16 @@ cost. Training time is reported separately. A mean-of-trials objective uses more
 than one underlying CNN training run for some architectures: 1,280 labels does
 not mean 1,280 CNN training jobs. We make no end-to-end GPU-cost claim.
 
-Regret = best observed validation error - full-table minimum validation error,
-in percentage points, not relative percent and not CIFAR test error.
+Primary regret = best validation error found by that search run - full-table
+minimum validation error, in percentage points, not relative percent and not
+CIFAR test error. A separately labeled incumbent-augmented diagnostic may combine
+the search result with the best train/development architecture, but it never
+controls primary ranking.
 Oracle minimum is calculated for reporting after searches finish.
 Compare paired runs; three model seeds sharing a split are not three independent
 datasets. Report variability; do not treat 15 runs as 15 independent tasks.
 These runs are initial mechanism checks, not a final competitive NAS benchmark:
-MCTS, evolutionary NAS, VCBFSN and online adaptation are not implemented in this
+Evolutionary NAS and online adaptation are not implemented in this
 standalone version. GBFS and VCBFS are implemented. DFS/BFS are traversal
 controls, not strong NAS claims. The default Dynamic Beam settings are explicitly
 labeled mechanism probes, not tuned competitive configurations; tuned settings
@@ -201,10 +234,14 @@ versions of the original manuscript agree. No statistical confidence guarantee.
 Beam collects every generated candidate at the next level, then keeps the global
 best W. Terminals can be pruned before visitation. BFS never calls the heuristic.
 GBFS keeps all pending states in one heuristic-priority queue and prunes none.
-VCBFS scores the full next-level candidate set, calculates the top-two-gap/MAD
-confidence over that level, and retains a confidence-dependent percentage of the
-globally ranked candidates. Its plateau confidence is 0.5 and its width uses
-half-up rounding, matching the reference implementation.
+VCBFS scores the full next-level population and calculates one top-two-gap/MAD
+confidence over that level. It preserves children by parent, calculates width
+from each parent's actual branching count using the shared confidence, and
+retains locally ranked children from every nonempty group. Parent and stable tie
+order determine the next frontier. Its plateau confidence is 0.5 and width uses
+half-up rounding. `VCBFSBeam` names the historical implementation that instead
+applies one width to the globally ranked pooled frontier. Earlier VCBFS pilot
+measurements belong to VCBFSBeam and are invalid as corrected VCBFS results.
 Dynamic Beam Search is included as two literature baselines: entropy-controlled
 and top-k-standard-deviation-controlled global beam width. The source method uses
 decoder probabilities. For NAS, predicted errors are converted with
@@ -214,6 +251,29 @@ of reproducing the paper's translation and summarization experiments.
 Query limit stops immediately upon reaching the limit. Expansion limit stops
 at the next nonterminal that needs expansion; it does not scan past that node
 for later terminals. Pending terminals reached before that point can be evaluated.
+
+## Separate V-family behavioral suite
+
+`python -B run.py behavior` does not replace the baseline comparison. It isolates
+VCDFS, VCDFS-A, corrected VCBFS, and VCBFS-A for a parameter-by-budget analysis on
+each checkpoint's held-out NAS-Bench-201 partition. The target optimum is the best
+held-out architecture for that split. Oracle labels are unavailable to the search
+and are consulted only by the event observer after retention and terminal events.
+
+An optimal path is counted as pruned only when a retention event explicitly places
+its next prefix in the discarded set. Failure to visit an unpruned optimum before a
+budget expires is reported separately from pruning it. With tied optima, the suite
+reports whether any or all optimal paths were removed and the surviving fraction.
+The improvement trace records the query, expansion count, heuristic-score count,
+elapsed time, objective, regret, and architecture whenever the incumbent improves.
+Anytime mean regret averages best-so-far regret over every query position through
+the requested budget; if a retained tree exhausts early, its final incumbent is
+carried forward so all configurations use the same horizon.
+
+Model seeds within a split remain repeated fits rather than independent datasets.
+Behavior summaries first average model seeds inside each split and then aggregate
+the independent split means. The parameter sweep is descriptive and must not be
+reported as unbiased hyperparameter selection on the same held-out partitions.
 
 DFS-family pending storage is O(1+dK+B) state records, not simply O(d), including
 temporary sibling storage; state payloads and model/dataset memory are extra.

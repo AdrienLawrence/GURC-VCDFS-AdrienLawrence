@@ -1,6 +1,215 @@
 # Confidence-Adaptive Pruning for Heuristic-Guided Search
 
+The repository now has parallel benchmark packages: `bench201/` owns the existing
+six-decision NAS-Bench-201 experiments; `bench301/` adds a 22-decision DARTS domain.
+Both use the same implementations in `algs/` and dispatch in
+`search_registry.py`. Existing NB201 artifact paths/checkpoint formats remain
+unchanged. Old root/module paths are transitional import/CLI shims.
+
+For the new domain, open `bench301/runs/extract_bench301.py`,
+`bench301/runs/train_bench301.py`, `bench301/runs/evaluate_bench301.py`, or
+`bench301/runs/compare_bench301.py` and press Run after editing
+the settings block. The four `bench301/runs/analyze_bench301_*.py` launchers perform
+paired V-family and baseline studies with query budgets or guarded exhaustion.
+Full workflow, commands, measured-data provenance, token
+mapping and oracle runtime setup are in [bench301/README.md](bench301/README.md).
+The full-log dataset has been extracted locally under
+`bench301/artifacts/measurements.json`; these files are ignored by Git.
+
+The requested change to absolute VCDFS local-bound interpolation was omitted:
+the retention rule remains unchanged. The shared search core now accepts an
+optional resource guard and optional batched domain scores; Bench201 does not
+activate either. Old artifacts are preserved. The NB301 performance ensemble
+and isolated XGBoost runtime are installed locally; no prefix transformer is
+currently trained. The user runs that training from `bench301/runs/train_bench301.py`.
+
+## Commands — run from the repository root
+
+Your prompt must be inside the maintained clone containing this README and
+`run.py`. On the current development machine:
+
+```powershell
+cd C:\Users\fires\Downloads\GURC-root\GURC-VCDFS-AdrienLawrence
+```
+
+If `run.py --help` lists only `inspect` and `demo`, you are in an obsolete copy.
+The maintained runner lists `test`, `search`, `smoke`, `pilot`, and `full` too.
+
+First-time environment setup:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### IDE Run-button launchers
+
+The `bench201/runs/` directory contains one launcher per use case. Open a file, edit only
+the uppercase settings block at its top, and press PyCharm/VS Code's Run button:
+
+- `bench201/runs/extract_measurements.py` — build the compact NAS-Bench-201 measurement file;
+- `bench201/runs/train_models.py` — train frozen transformer checkpoints;
+- `bench201/runs/compare_algorithms.py` — run the baseline and algorithm comparison;
+- `bench201/runs/analyze_v_family.py` — run the dedicated parameter-by-budget behavior suite;
+- `bench201/runs/analyze_baselines.py` — run matched non-V baselines on the same models and budgets;
+- `bench201/runs/analyze_v_family_exhaustive.py` — exhaust each retained absolute V-family tree;
+- `bench201/runs/analyze_baselines_exhaustive.py` — exhaust each matched baseline tree;
+- `bench201/runs/view_search_results.py` — open the baseline-comparison Pareto viewer;
+- `bench201/runs/view_v_family_results.py` — explore V-family behavior by family and budget;
+- `bench201/runs/view_baseline_results.py` — explore the matched baseline behavior artifact;
+- `bench201/runs/view_search_tree.py` — generate the real-data root-to-leaf explanatory figure;
+- `tests/run_tests.py` — run the complete correctness suite.
+
+Each launcher uses the active Python interpreter and forces the repository root as
+its working directory, so it does not depend on an IDE-specific working-directory
+setting. The four behavior-analysis launchers extend a compatible existing artifact:
+completed rows are skipped and newly configured algorithms are appended. All other
+experiment outputs remain exclusive rather than being silently overwritten.
+
+Routine commands:
+
+```powershell
+# Show command descriptions.
+.\.venv\Scripts\python.exe -B run.py --help
+
+# Run all correctness tests.
+.\.venv\Scripts\python.exe -B run.py test
+
+# Run a deliberately reduced, non-scientific one-query plumbing check.
+.\.venv\Scripts\python.exe -B run.py smoke
+
+# Run and save the complete 15-model, 100-query comparison.
+.\.venv\Scripts\python.exe -B run.py search
+
+# Run a compact held-out V-family behavior sweep across eight query budgets.
+.\.venv\Scripts\python.exe -B run.py behavior --preset quick
+
+# Run the exhaustive 90-configuration held-out V-family parameter sweep.
+.\.venv\Scripts\python.exe -B run.py behavior --preset full --output artifacts\v-family-behavior-full-001
+
+# Explore an aggregated V-family behavior result interactively.
+.\.venv\Scripts\python.exe -B -m ui.behavior_cli --results artifacts\v-family-behavior-full-001
+
+# Open the read-only Pareto UI after saving a search run.
+.\.venv\Scripts\python.exe -B run.py ui --results artifacts\full-search-001
+
+# Train split 101/model 0 for up to 500 epochs.
+.\.venv\Scripts\python.exe -B run.py pilot
+
+# Train the complete preset study: five splits times three model seeds.
+.\.venv\Scripts\python.exe -B run.py full
+
+# Inspect the benchmark archive metadata without training a model.
+.\.venv\Scripts\python.exe -B run.py inspect
+
+# Run the labeled synthetic search demonstration.
+.\.venv\Scripts\python.exe -B run.py demo --trace
+
+# Verify lint and formatting.
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+```
+
+`pilot` writes `artifacts/pilot-study-next`; `full` writes
+`artifacts/full-study`; `search` reads those 15 checkpoints and writes
+`artifacts/full-search-001`. These commands refuse to overwrite existing output
+directories. `search`, `pilot`, and `full` preserve their documented scientific
+presets. Only `smoke` intentionally reduces the query budget.
+
+`behavior` is a separate diagnostic suite. For every frozen checkpoint it searches
+only that checkpoint's held-out NAS-Bench-201 test architectures. The quick preset
+uses 18 representative V-family configurations; the full preset enumerates all 15
+ordered bound pairs available at 20% proportional increments and all 15 integer
+bound pairs from one through five, for VCDFS, corrected VCBFS, and VCBFSN. Both presets
+run query budgets 1, 2, 4, 8, 16, 32, 64, and 100. The suite records optimal-path
+survival, exact pruning events, final and anytime regret, query/expansion/score/time
+to the final incumbent, retention, frontier pressure, and ordinary work counters.
+It writes a recoverable `runs.partial.json` every ten runs, then atomically promotes
+that checkpoint to `runs.json` after completion instead of storing both copies.
+Rerunning either analysis launcher with the same output directory resumes after the
+last saved row. Before continuing, the runner verifies the data checksum, preset,
+budgets, selected checkpoints, algorithm parameters, and metric version. Changed
+plans are rejected rather than combined. At most `CHECKPOINT_EVERY - 1` unsaved
+runs are repeated after an abrupt interruption.
+The held-out oracle is used only after each search
+to label behavior; it never controls traversal or model fitting.
+The console prints every run and the five strongest configurations at each budget,
+ranked by anytime regret, final regret, and then heuristic scoring work.
+
+The full sweep contains 10,800 raw runs, not 10,800 parameter configurations:
+90 configurations × 8 budgets × 15 frozen models. `runs.json`/`runs.csv` preserve
+those raw runs and event-derived traces. `split_summary.json` first averages the
+three repeated model fits inside each split. `summary.json`/`summary.csv` contain
+only 720 configuration-budget rows and are the normal analysis surface.
+
+The third `absolute-ablation` preset isolates VCDFS-A, VCBFS-A, and VCBFSN-A. It evaluates
+every ordered `(k_min, k_max)` pair from one through five: 15 configurations per
+algorithm and 45 total. `--models-per-split` deterministically retains the lowest
+model seeds in each split without discarding split coverage. The editable launcher
+uses one model per split and budgets 1, 8, 32, 64, and 100, giving 45 × 5 × 5 =
+1,125 runs.
+
+Behavior rows now include clean runtime plus separately replayed Python-allocation
+peak, whole-process RSS peak, and RSS increase. The separate deterministic replay
+keeps memory instrumentation out of the runtime and pruning observations.
+
+The separate `baselines` preset excludes the V family and reuses the same held-out
+checkpoints, query budgets, metric definitions, and deterministic memory replay.
+It contains DFS, BFS, heuristic DFS, GBFS, A*, MCTS-UCT, CDFS-1 through CDFS-5,
+Beam-4/16, and the entropy and standard-deviation adaptive beams. The default
+`bench201/runs/analyze_baselines.py` plan is
+15 configurations × 5 budgets × 5 checkpoints = 375 matched runs. This avoids
+duplicating V-family work already present in the ablation artifact.
+
+The two `*_exhaustive.py` launchers impose neither expansion nor terminal-query
+limits. Each algorithm stops only after exhausting the search tree that remains
+reachable under its pruning policy. Exhaustive rows use `query_budget = -1` and
+`budget_mode = "exhaustive"`; the UI labels this condition “Exhaustive.” Anytime
+regret is still evaluated over the full held-out terminal count, carrying a
+pruned algorithm's final incumbent forward so algorithms remain comparable.
+Using one model per each of five splits limits this add-on to 225 V-family runs
+and 60 baseline runs.
+
+The behavioral viewer reduces this further to one family and one budget—normally
+15 points. Its controls switch family, budget, work measure, and final versus
+anytime regret. Horizontal position represents work, vertical position represents
+regret, point color represents the rate at which every optimal held-out path was
+pruned, marker size represents optimum-found rate, and the outlined connected
+points form the selected Pareto frontier. The viewer is read-only and does not
+save figures automatically.
+
+### Root-to-leaf explanatory figure
+
+Open `bench201/runs/view_search_tree.py`, edit its uppercase settings, and press Run. The
+figure reruns the selected frozen model and V-family algorithm on that checkpoint's
+held-out NAS-Bench-201 test partition. It automatically chooses a completed path
+with a strong within-path confidence contrast and shows the lowest- and highest-
+confidence internal decisions away from the leaf so every displayed branch remains
+readable.
+
+Every path node names the operation assigned to the current NAS edge, bolds the
+next edge to be decided, reports the real frozen-transformer estimate `h(s)`, and
+shows first-visit order. The terminal node gives the complete six-operation
+architecture string, predicted error, measured NAS-Bench-201 validation error,
+prediction error, and terminal-query position. Both decision panels list every
+local child score and its retained/discarded status, the relevant confidence
+population, top-two gap, mean, MAD, actual confidence equation, interpolated
+`q(c)`, raw width, and actual retained width. For VCBFS, confidence statistics use
+the pooled depth frontier while the displayed child decisions remain parent-local.
+The caption records release, dataset, metric, epoch, held-out split seed, model
+seed, controller bounds, epsilon, and algorithm. Like the other UI figures, it
+opens interactively and never saves automatically.
+
+The Pareto UI reads the versioned `summary.json`, computes nondominated points,
+and opens an interactive Matplotlib window. Its selector switches among runtime,
+RSS, queries, heuristic scores, expansions, and pending states. It does not save
+or modify artifacts automatically; the Matplotlib toolbar remains available for
+an explicit manual export.
+
 Implementation repository for a 2026 Georgia Undergraduate Research Conference (GURC) project at the University of West Georgia.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the enforced one-way UI dependency
+rule, immutable artifact contract, and versioned result/trace schema boundary.
 
 This project investigates whether **confidence-adaptive pruning can reduce search cost faster than it increases optimization regret by selectively sacrificing completeness**.
 
@@ -14,7 +223,8 @@ Rather than using heuristic dispersion alone to determine search width, the cont
 The controller is evaluated through two first-class search implementations:
 
 - **VCDFS**: applies confidence-adaptive retention locally to each sibling set during depth-first traversal.
-- **VCBFS**: applies the same confidence controller globally to the combined candidate frontier at each search depth.
+- **VCBFS**: computes one confidence value over the combined next-level scores,
+  then applies the resulting retention independently within each parent's children.
 
 The project studies whether changing retention bounds moves these methods along a useful empirical **regret-resource Pareto frontier**.
 
@@ -123,13 +333,16 @@ VCBFS applies the same controller breadth-first.
 At each depth:
 
 1. expand the current frontier;
-2. combine all generated candidates for the next level;
-3. score and rank that global candidate set;
-4. compute one confidence value across the level;
-5. determine retained width;
-6. retain the best candidates as the next frontier.
+2. pool all child scores to compute one shared level-wide confidence;
+3. preserve each parent's child group;
+4. calculate a local width from that parent's branching count and the shared confidence;
+5. retain the best children within every parent group;
+6. concatenate the retained groups as the next frontier.
 
-VCBFS therefore tests whether the confidence formulation remains useful when applied globally rather than to local sibling decisions.
+`VCBFSBeam` preserves the earlier pooled global-retention implementation as a
+separately named adaptive-beam baseline. It may eliminate every child from a
+weaker parent; corrected VCBFS cannot do so when that parent's local width is
+positive.
 
 ### Proportional and Absolute Width Modes
 
@@ -174,6 +387,9 @@ E_{\text{global optimum}}.
 $$
 
 This is an absolute percentage-point difference, not a relative percentage.
+The primary value is search-only: `search_best_error - global_oracle_error`.
+The train/development incumbent is recorded separately as a diagnostic and does
+not improve primary regret or algorithm ranking.
 
 Because NAS-Bench-201 is fully enumerable, the global optimum under the selected validation measurement is known. This allows exact regret to be calculated rather than approximating solution quality from the best architecture encountered during search.
 
@@ -303,7 +519,7 @@ They are preliminary observations only and do not establish statistical superior
 
 | Method | Regret | Runtime | Expansions | Heuristic Scores | Terminal Queries | Peak Pending | RSS Delta |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| VCBFS-20-40% | 0.0000 pp | 0.0830 s | 17 | 85 | 11 | 40 | 20 KiB |
+| VCBFSBeam-20-40% | 0.0000 pp | 0.0830 s | 17 | 85 | 11 | 40 | 20 KiB |
 | CDFS-4 | 0.0000 pp | 0.1532 s | 37 | 185 | 100 | 19 | 24 KiB |
 | Dynamic Beam StdDev 4-16 | 0.0000 pp | 0.1957 s | 55 | 275 | 16 | 80 | 28 KiB |
 | GBFS | 0.0000 pp | 0.1385 s | 34 | 170 | 100 | 40 | 36 KiB |
@@ -311,7 +527,10 @@ They are preliminary observations only and do not establish statistical superior
 | VCDFS-A-1-2 | 0.3547 pp | 0.0256 s | 6 | 30 | 1 | 1 | 20 KiB |
 | Beam-4 | 0.3547 pp | 0.0746 s | 21 | 105 | 4 | 20 | 24 KiB |
 
-In the current pilot, **VCBFS-20-40 found a globally optimal architecture using 17 expansions, 85 heuristic evaluations, and 11 terminal queries**.
+In the current pilot, the historical **VCBFSBeam-20-40** implementation found a
+globally optimal architecture using 17 expansions, 85 heuristic evaluations,
+and 11 terminal queries. These measurements must not be attributed to corrected
+VCBFS; corrected VCBFS configurations require new runs.
 
 The narrow VCDFS-A-1-2 configuration demonstrates the opposite end of the tradeoff: it used only 6 expansions, 30 heuristic evaluations, and one terminal query, but incurred 0.3547 percentage points of regret.
 
@@ -378,20 +597,45 @@ heuristic/
     NAS measurement extraction, transformer model,
     training, evaluation, checkpointing, and experiment driver.
 
+behavior/
+    V-family diagnostic experiments and real search-trace capture.
+
+ui/
+    Read-only result viewers and figure renderers. UI code does not
+    run algorithms or alter experiments.
+
+bench201/runs/ and bench301/runs/
+    Benchmark-specific editable IDE launch files. Both launch from the repository
+    root so existing data and output paths remain unchanged.
+
+schemas/
+    Shared validation and artifact-writing infrastructure.
+
 tests/
     Search correctness, property/adversarial testing,
-    transformer tests, and empirical-runner tests.
+    transformer, architecture-boundary, behavior, and runner tests. Run all via
+    tests/run_tests.py.
 
 nas_space.py
     NAS-Bench-201 parsing and deterministic six-decision
     construction-tree representation.
 
 empirical.py
-    Runs frozen-model search experiments and produces
-    per-run and split-aware empirical summaries.
+    Measures frozen-model search runs and coordinates result output.
+
+search_specs.py
+    Declares algorithm configurations and dispatches each algorithm.
+
+search_reporting.py
+    Calculates metrics and formats console, JSON, and CSV results.
+
+tree_figure.py
+    Captures a real NAS search trace, then sends immutable figure data
+    to the read-only tree renderer.
 
 run.py
-    Dataset inspection and synthetic search demonstrations.
+    Stable command-line presets for tests, training, search, behavior,
+    dataset inspection, and demonstrations.
 
 PROTOCOL.md
     Formal experimental protocol, mathematical definitions,
@@ -424,6 +668,26 @@ cd C:\\Users\\fires\\Downloads\\cs4275-gurc-research
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
+
+### Simple preset commands
+
+The top-level runner supplies complete presets so routine validation does not
+depend on remembering long argument lists:
+
+```powershell
+.\.venv\Scripts\python.exe -B run.py test
+.\.venv\Scripts\python.exe -B run.py smoke
+.\.venv\Scripts\python.exe -B run.py search
+.\.venv\Scripts\python.exe -B run.py pilot
+.\.venv\Scripts\python.exe -B run.py full
+```
+
+`search` runs the full 100-terminal-query comparison against the existing
+`pilot-study-long` checkpoint. `pilot` trains split 101/model 0 for up to 500
+epochs into `artifacts/pilot-study-next`. `full` preserves the five-split by
+three-model defaults and writes `artifacts/full-study`. Output directories are
+never overwritten. Only `smoke` reduces the query budget to one, and it labels
+itself non-scientific in the console.
 
 ### Extract NAS-Bench-201 measurements
 
